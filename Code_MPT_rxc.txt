@@ -1,0 +1,1588 @@
+c   Source program: MPT_rxc.for.
+c
+c     
+c   Calculation of a maximum probability table (MPT) in rxc tables with fixed marginals 
+c   and assumption of independence between rows and columns. The procedure starts from 
+c   the table containing the maximum of each cell. The marginal totals of columns are then 
+c   adjusted to match the proposed marginal totals of columns. Finally, the marginal totals
+c   of rows are adjusted to match those proposed, and this is done in several steps. 
+c   At each step, one marginal total of row (considered as the first row) is reduced by 
+c   one unit and another marginal total of row (considered as the last row) is increased
+c   by one unit. Also, at each step, sequences without backtracking are used in 
+c   principle, and it is checked whether the final table (after the step) is an MPT
+c   (for this purpose its U table is calculated). If it is not, the step is repeated
+c   using all the sequences (with and without backtracking). The probability of the 
+c   MPT is also calculated.
+c
+c   The program is valid for tables up to 11x30.
+c
+c   The program measures the computing time.
+c
+c   Definition of types of variables and matrices.   
+c
+      IMPLICIT INTEGER*2 (i,j,k)
+	CHARACTER*1 aa
+      INTEGER*2 r,c,error,fi1,fir,infi,infir,nc1,najfn,najfp,cajn,
+     +	cajp,cpmam,indpaso,ndes
+      INTEGER*4 smf,smc,nsecolr,i44
+      INTEGER*2 desha(3)
+      INTEGER*2 mf[ALLOCATABLE](:),mc[ALLOCATABLE](:),
+     +   mfi[ALLOCATABLE](:),mci[ALLOCATABLE](:),
+     +   mfp[ALLOCATABLE](:),mcp[ALLOCATABLE](:),
+     +   ncdcol[ALLOCATABLE](:),fcdcol[ALLOCATABLE](:,:),
+     +   ajf[ALLOCATABLE](:),ajc[ALLOCATABLE](:),
+     +   fdnn[ALLOCATABLE](:),crs1[ALLOCATABLE](:),
+     +   fajn[ALLOCATABLE](:),fajp[ALLOCATABLE](:)
+      REAL tummc[ALLOCATABLE](:,:)
+	REAL cac,cacm,idp,epsi,epsi11,destu,epsi10,epsival,valmi,valms,e2
+c
+      INTEGER*2 rr1,nppana,nf,nc,npsec
+      INTEGER*2 x[ALLOCATABLE](:,:),ival[ALLOCATABLE](:,:),
+     +	col[ALLOCATABLE](:,:),secuf[ALLOCATABLE](:,:),
+     +	ipro[ALLOCATABLE](:,:),secu[ALLOCATABLE](:),
+     +	ppana[ALLOCATABLE](:,:),rm[ALLOCATABLE](:)
+	REAL v,prod,vsec
+      REAL xr[ALLOCATABLE](:,:),valm[ALLOCATABLE](:,:),
+     +    valmac[ALLOCATABLE](:,:)
+c
+      INTEGER*2 npsem,npseac,nfic,col1,ipr,nfic1,nfic2
+	INTEGER*4 rm3f,ntsg,j1
+	INTEGER*4 pf1[ALLOCATABLE](:),pf2[ALLOCATABLE](:),
+     +   cp[ALLOCATABLE](:,:)
+      INTEGER*2 tabase[ALLOCATABLE](:,:),vfi[ALLOCATABLE](:),
+     +   semax[ALLOCATABLE](:),fili[ALLOCATABLE](:,:),
+     +   seac[ALLOCATABLE](:)
+	REAL vmsc,vseac
+c
+      INTEGER*2 ietac,ietan,kp,netap,hx,ht
+ 	REAL ma,mi,ma1,mi1,rhipr(2,90),epsi1,epsi2,valinf1,
+     +	valinf2,valsup1,valsup2,epsi50,epsi100,epsi3,valinf3,
+     +    valsup3,epsi1000
+      REAL tu[ALLOCATABLE](:,:),varhi[ALLOCATABLE](:,:,:,:),
+     +	vfr[ALLOCATABLE](:,:),epsi1j[ALLOCATABLE](:,:),
+     +	rhi1e[ALLOCATABLE](:,:),vfrhi[ALLOCATABLE](:,:)
+c
+	DOUBLE PRECISION ifa,prob,loprob,lofrcn,lofxij,
+     +	lofac[ALLOCATABLE](:)
+c
+c
+c   Open results file.
+c
+      OPEN (0,file='Output_1.txt')
+c
+c
+	idp=1
+	epsi=epsilon(idp)
+	epsi10=epsi*10
+	epsi50=epsi*50
+	epsi100=epsi*100
+	epsi1000=epsi*1000
+c
+c   Presentation of the program
+c
+      WRITE(*,*) 'CALCULATION OF A MAXIMUM PROBABILITY rxc TABLE (MPT)'
+	WRITE(*,*) 'For fixed marginal sums, and assuming independence 
+     +between rows and columns '
+	WRITE(*,*)
+	WRITE(*,*) '(Valid for values of r no higher than 11, and 
+     *values of c no higher than 30)'
+	WRITE(*,*)
+	WRITE(*,*) '(See the results in the file output_1.txt) '
+	WRITE(*,*)
+	WRITE(*,*)
+c
+c   Read the number of rows.
+c
+	WRITE(*,'(//)')
+	WRITE(*,*) 'Introduce the number of rows and columns in 
+     +the table.' 
+	WRITE(*,*)
+    2 WRITE(*,'(/A21\)') ' Number of rows (r): '
+      READ(*,*) r
+      IF(r.LT.2 .OR. r.GT.11) THEN
+		  WRITE(*,*) ' Value out of range'
+		  GOTO 2
+	ENDIF
+c
+c   Read the number of columns.
+c
+c	write(*,'(//)')
+    3 WRITE(*,'(/A24\)') ' Number of columns (c): '
+      READ(*,*) c
+      IF(c.LT.2 .OR. c.GT.30) THEN
+		  WRITE(*,*) ' Value out of range'
+		  GOTO 3
+	ENDIF
+c
+c
+	rr1=r*(r-1)/2
+	rm3f=1
+	DO 5 i=2,r-3
+		rm3f=rm3f*i
+    5 Continue
+c
+c   Assign dimension to matrices.
+c
+	ALLOCATE (mf(r),mc(c),mfi(r),mci(c),mfp(r),mcp(c),ajf(r),
+     +  tummc(r,c),ncdcol(c),fcdcol(r,c),ajc(c),fdnn(r),
+     +  crs1(r),fajn(2*r),fajp(2*r), STAT=error)
+	IF(error.NE.0) STOP ' Memory allocation failure.'
+c
+	ALLOCATE (x(r,c),xr(r,c),valm(r,r),valmac(r,r),ival(r,r),rm(r),
+     +  col(r,r),ipro(r,r),secu(r),secuf(r,3),ppana(rr1,2),
+     +   STAT=error)
+	IF(error.NE.0) STOP ' Memory allocation failure.'
+c
+	ALLOCATE (tabase(rm3f+1,r),vfi(r),semax(r),pf1(r-2),pf2(r-2),
+     +  cp(r-4,r-4),fili(r-3,r),seac(r), STAT=error)
+	IF(error.NE.0) STOP ' Memory allocation failure.'
+c
+	ALLOCATE (tu(r,c),varhi(2,2,r,r),vfr(3,r-1),epsi1j(3,c),
+     +     rhi1e(2,c),vfrhi(r,r), STAT=error)
+	IF(error.NE.0) STOP ' Memory allocation failure.'
+c
+c   Assigning initial values.
+c
+	ipr=0
+	nsecolr=0
+	DO 4 i=1,r
+		rm(i)=r-i
+    4	Continue
+c
+	DO 410 i81=1,2
+	DO 410 i82=1,2
+	DO 410 i83=1,r
+		varhi(i81,i82,i83,i83)=1
+  410	Continue
+	DO 412 i83=1,r
+		vfrhi(i83,i83)=1
+  412 Continue
+c
+	DO 7 j=1,c
+		ncdcol(j)=0
+    7 Continue
+c
+c  
+c   Read marginal totals from table.
+c 
+   13 smf=0
+	smc=0		
+   	WRITE(*,*)
+   	WRITE(*,*)
+	WRITE(*,*) 'Introduce the marginal sums of the table '
+	WRITE(*,*) 
+ 	DO 8 i=1,r
+   11    WRITE(*,'(A14,I3,A3\)') ' row marginal ',i,' : '
+         READ(*,*) mfp(i)
+         IF(mfp(i).LT.0.OR.mfp(i).GT.25000) THEN
+		  WRITE(*,*) ' Value out of range'
+	      GOTO 11
+	   ENDIF 
+	   smf=smf+mfp(i) 
+    8	Continue 
+ 	WRITE(*,*) 
+c  
+ 	DO 9 j=1,c
+   12    WRITE(*,'(A17,I3,A3\)') ' column marginal ',j,' : '
+         READ(*,*) mcp(j)
+         IF(mcp(j).LT.0.OR.mcp(j).GT.25000) THEN
+		  WRITE(*,*) ' Value out of range'
+	      GOTO 12
+	   ENDIF 
+	   smc=smc+mcp(j)
+    9	Continue 
+ 	WRITE(*,*)
+	IF(smf.NE.smc) THEN
+		WRITE(*,*) ' Error when introducing the marginal sums.'
+		GOTO 13
+	ENDIF
+	IF(smf.GT.40000) THEN
+		WRITE(*,*) ' Marginal sums too big.'
+		GOTO 1111
+	ENDIF
+c	
+c
+c   Assigning additional dimension to matrices.
+c
+	ALLOCATE (lofac(0:smf), STAT=error)
+	IF(error.NE.0) STOP ' Memory allocation failure.'
+c
+c   Calculation of matrices of the logarithm of factorials.
+c
+      lofac(0)=0
+      DO 218 i44=1,smf
+		ifa=i44
+		lofac(i44)=lofac(i44-1)+DLOG10(ifa)
+  218 continue 
+c
+c   Write the title and marginal totals of the table
+c
+      WRITE(0,*) 'CALCULATION OF A MAXIMUM PROBABILITY rxc TABLE (MPT)'
+	WRITE(0,*) '(For fixed marginal sums, and assuming independence 
+     +between rows and columns) '
+	write(0,*)
+	write(0,*)
+      WRITE(0,*) 'MARGINAL SUMS of the rxc table'
+      WRITE(0,'(/A3,I3)') ' r=',r
+      WRITE(0,'(A17\)') ' Row Marginals:  '
+      DO 16 i=1,r
+		WRITE(0,'(1X,I5\)') mfp(i)
+   16 Continue
+      WRITE(0,'(//A3,I3)') ' c=',c
+      WRITE(0,'(A19\)') ' Column Marginals:'
+      DO 17 j=1,c
+		WRITE(0,'(1X,I5\)') mcp(j)
+   17 Continue
+      WRITE(0,'(1X)')
+c
+c
+c   Start the stopwatch
+c
+      CALL GETTIM(ihi,imi,isi,icsi)
+c
+c
+c   Calculation of the sum of logarithm of Ri!, Cj! y N!.
+c
+	lofrcn=0
+	DO 10 i=1,r
+		lofrcn=lofrcn+lofac(mfp(i))
+   10 Continue
+c
+	DO 15 j=1,c
+		lofrcn=lofrcn+lofac(mcp(j))
+   15 Continue
+	lofrcn=lofrcn-lofac(smf)
+c  
+c   ALGORITHM 1 OF THE MANUSCRIPT
+c
+c   Step 1: Calculate the U table.
+c
+c	WRITE(0,*)
+	DO 14 i=1,r
+      DO 14 j=1,c
+		tummc(i,j)=REAL(mfp(i)+1)*REAL(mcp(j)+1)/(smf+2)
+   14 Continue
+c
+c
+c   Step 2: initial table X.
+c   Step 3: calculation of marginal totals and 
+c   the misadjustments with respect to the proposed marginal totals.  
+c
+	DO 910 i=1,r
+	mfi(i)=0
+	DO 911 j=1,c
+		x(i,j)=INT(tummc(i,j))
+		mfi(i)=mfi(i)+x(i,j)
+		e2=epsi10*tummc(i,j)
+		IF(x(i,j).GT.tummc(i,j)-e2.AND.x(i,j).LT.tummc(i,j)+e2) THEN
+		ncdcol(j)=ncdcol(j)+1
+		fcdcol(ncdcol(j),j)=i
+		ENDIF
+  911 Continue
+		ajf(i)=mfp(i)-mfi(i)
+  910 Continue
+c
+	DO 912 j=1,c
+	mci(j)=0
+	DO 913 i=1,r
+		mci(j)=mci(j)+x(i,j)
+  913 Continue
+		ajc(j)=mcp(j)-mci(j)
+  912 Continue
+c
+c
+c   Step 4: adjusting marginal totals of columns and
+    the row misadjustments are also recalculated (Steps 5 and 6).
+c
+	DO 920 j=1,c
+	k12=0
+	IF(ajc(j)) 925,920,930
+c
+c   Step 4b: negative misadjustment case by columns.
+c
+  925 ijp=-1*ajc(j)
+	IF(ncdcol(j).LT.ijp) GOTO 922
+	DO 928 i=1,ncdcol(j)
+		i2f=fcdcol(i,j)
+		IF(ajf(i2f).LT.0) THEN
+			x(i2f,j)=x(i2f,j)-1
+			ajc(j)=ajc(j)+1
+			ajf(i2f)=ajf(i2f)+1
+		mfi(i2f)=mfi(i2f)-1
+		mci(j)=mci(j)-1
+		ELSE
+			k12=k12+1
+			fdnn(k12)=i2f
+		ENDIF
+		IF(ajc(j).EQ.0) EXIT
+  928 Continue
+	k11=0
+  929 IF(ajc(j).EQ.0) GOTO 920
+	k11=k11+1
+	x(fdnn(k11),j)=x(fdnn(k11),j)-1
+	ajc(j)=ajc(j)+1
+	ajf(fdnn(k11))=ajf(fdnn(k11))+1
+	mfi(fdnn(k11))=mfi(fdnn(k11))-1
+	mci(j)=mci(j)-1
+	GOTO 929
+c
+  922	IF(ncdcol(j).EQ.0) GOTO 931
+	DO 926 i=1,ncdcol(j)
+		i2f=fcdcol(i,j)
+		x(i2f,j)=x(i2f,j)-1
+		ajc(j)=ajc(j)+1
+		ajf(i2f)=ajf(i2f)+1
+		mfi(i2f)=mfi(i2f)-1
+		mci(j)=mci(j)-1
+  926 Continue
+	IF(ajc(j).GE.0) STOP ' Error 1.'
+	DO 927 i=1,r
+		tummc(i,j)=tummc(i,j)*.999999
+  927 Continue
+c
+  931	nc1=0
+	cacm=0
+	k12=0
+	DO 932 i=1,r
+		cac=INT(tummc(i,j))/tummc(i,j)
+		epsi11=epsi10*cac
+		IF(cac-epsi11.GT.cacm) THEN
+			cacm=cac
+			nc1=1
+			crs1(nc1)=i
+			GOTO 932
+		ENDIF
+		IF(cac+epsi11.LT.cacm) GOTO 932
+		nc1=nc1+1
+		crs1(nc1)=i
+  932 Continue
+	DO 933 i1=1,nc1
+		i2f=crs1(i1)
+		IF(ajf(i2f).LT.0) THEN
+			x(i2f,j)=x(i2f,j)-1
+			ajc(j)=ajc(j)+1
+			ajf(i2f)=ajf(i2f)+1
+			mfi(i2f)=mfi(i2f)-1
+			mci(j)=mci(j)-1
+		ELSE
+			k12=k12+1
+			fdnn(k12)=i2f
+		ENDIF
+		IF(ajc(j).EQ.0) EXIT
+  933 Continue
+	IF(ajc(j).EQ.0) GOTO 920
+	DO 950 i1=1,k12
+		i2f=fdnn(i1)
+		x(i2f,j)=x(i2f,j)-1
+		ajc(j)=ajc(j)+1
+		ajf(i2f)=ajf(i2f)+1
+		mfi(i2f)=mfi(i2f)-1
+		mci(j)=mci(j)-1
+		IF(ajc(j).EQ.0) EXIT
+  950 Continue
+c
+	IF(ajc(j).LT.0) THEN
+		DO 935 i=1,r
+			tummc(i,j)=tummc(i,j)*cacm*.999999
+  935 Continue
+		GOTO 931
+	ELSE
+		GOTO 920
+	ENDIF
+c
+c   Step 4a: positive misadjustment case by columns.
+c
+  930	IF(ncdcol(j).GT.0) THEN
+		DO 937 i=1,r
+			tummc(i,j)=tummc(i,j)*1.000001
+  937 Continue
+	ENDIF
+c
+ 941	nc1=0
+	cacm=10000
+	k12=0
+	DO 942 i=1,r
+		cac=(INT(tummc(i,j))+1)/tummc(i,j)
+		epsi11=epsi10*cac
+		IF(cac+epsi11.LT.cacm) THEN
+			cacm=cac
+			nc1=1
+			crs1(nc1)=i
+			GOTO 942
+		ENDIF
+		IF(cac-epsi11.GT.cacm) GOTO 942
+		nc1=nc1+1
+		crs1(nc1)=i
+  942 Continue
+	DO 943 i1=1,nc1
+		i2f=crs1(i1)
+		IF(ajf(i2f).GT.0) THEN
+			x(i2f,j)=x(i2f,j)+1
+			ajc(j)=ajc(j)-1
+			ajf(i2f)=ajf(i2f)-1
+			mfi(i2f)=mfi(i2f)+1
+			mci(j)=mci(j)+1
+		ELSE
+			k12=k12+1
+			fdnn(k12)=i2f
+		ENDIF
+		IF(ajc(j).EQ.0) EXIT
+  943 Continue
+	IF(ajc(j).EQ.0) GOTO 920
+	DO 951 i1=1,k12
+		i2f=fdnn(i1)
+		x(i2f,j)=x(i2f,j)+1
+		ajc(j)=ajc(j)-1
+		ajf(i2f)=ajf(i2f)-1
+		mfi(i2f)=mfi(i2f)+1
+		mci(j)=mci(j)+1
+		IF(ajc(j).EQ.0) EXIT
+  951 Continue
+c
+	IF(ajc(j).GT.0) THEN
+		DO 945 i=1,r
+			tummc(i,j)=tummc(i,j)*cacm*1.000001
+  945 Continue
+		GOTO 941
+	ENDIF
+c
+  920 Continue
+c
+	DO 463 i=1,r
+	DO 463 j=1,c
+		xr(i,j)=REAL(x(i,j))
+  463 Continue
+c
+c
+c   Go to check if the starting table (adjusted by columns)
+c   is a MPT.
+c
+	indpaso=0
+	GOTO 1010
+c
+c
+c   Step 7 (7a to 7d): adjustments by rows.
+c   Preparations for adjustment by rows: process of moving from
+c   one MPT to another (subtracting 1 in the first row and 
+c   adding 1 in the last). The table is prepared to perform each
+c   step (adjustment), the step (adjustment) is performed, and 
+c   with the table resulting from that step, the table with which 
+c   the next step will be performed is prepared.
+c
+ 1015	najfn=0
+	najfp=0
+	DO 952 i=2,rm(1)
+		IF(ajf(i)) 955,952,956
+c
+c   Negative adjustment.
+c
+  955		DO 953 ik=1,ABS(ajf(i))
+			najfn=najfn+1
+			fajn(najfn)=i
+  953 Continue
+		GOTO 952
+c
+c   Positive adjustment.
+c
+  956		DO 954 ik=1,ajf(i)
+ 			najfp=najfp+1
+			fajp(najfp)=i
+  954 Continue 	
+  952 Continue 	
+	IF(ajf(1).LT.0) najfn=najfn-ajf(1)
+	IF(ajf(r).LT.0) najfn=najfn-ajf(r)
+	IF(ajf(1).GT.0) najfp=najfp+ajf(1)
+	IF(ajf(r).GT.0) najfp=najfp+ajf(r)
+c
+c   Adjusting rows, with first and/or last row involved.
+c   Different cases that may arise.
+c
+	cajn=0
+	cajp=0
+	cpmam=0
+	indpaso=1
+  960 IF(ajf(1)) 965,970,975
+  965 IF(ajf(r)) 980,980,981
+  970 IF(ajf(r)) 982,1000,983
+  975 IF(ajf(r)) 984,985,983
+c
+c   First row, negative adjustment. Last row, negative adjustment or 0.
+c
+  980	ajf(1)=ajf(1)+1
+	cajp=cajp+1
+	fir=fajp(cajp)
+c
+	DO 962 j=1,c
+		infi=x(r,j)
+		x(r,j)=x(fir,j)
+		x(fir,j)=infi
+		infir=xr(r,j)
+		xr(r,j)=xr(fir,j)
+		xr(fir,j)=infir
+  962 Continue
+	ajf(fir)=ajf(fir)-1
+	ndes=2
+	desha(1)=r
+	desha(2)=fir
+	GOTO 1100
+c
+c   First row, negative adjustment. Last row, positive adjustment.
+c
+  981	ajf(1)=ajf(1)+1
+	ajf(r)=ajf(r)-1
+	ndes=0
+	GOTO 1100
+c
+c   First row, adjustment 0. Last row, negative adjustment
+c
+  982	ajf(r)=ajf(r)+1
+	cajp=cajp+1
+	fir=fajp(cajp)
+c
+	DO 964 j=1,c
+		infi=x(1,j)
+		x(1,j)=x(r,j)
+		x(r,j)=x(fir,j)
+		x(fir,j)=infi
+		infir=xr(1,j)
+		xr(1,j)=xr(r,j)
+		xr(r,j)=xr(fir,j)
+		xr(fir,j)=infir
+  964 Continue
+	ajf(fir)=ajf(fir)-1
+	ndes=3
+	desha(1)=1
+	desha(2)=r
+	desha(3)=fir
+	GOTO 1100
+c
+c   First row, 0 or positive adjustment. Last row, positive adjustment.
+c
+  983	ajf(r)=ajf(r)-1
+	cajn=cajn+1
+	fi1=fajn(cajn)
+c
+	DO 967 j=1,c
+		infi=x(1,j)
+		x(1,j)=x(fi1,j)
+		x(fi1,j)=infi
+		infir=xr(1,j)
+		xr(1,j)=xr(fi1,j)
+		xr(fi1,j)=infir
+  967 Continue
+	ajf(fi1)=ajf(fi1)+1
+	ndes=2
+	desha(1)=1
+	desha(2)=fi1
+	GOTO 1100
+c
+c   First row, positive adjustment. Last row, negative adjustment.
+c
+  984	ajf(1)=ajf(1)-1
+	ajf(r)=ajf(r)+1
+c
+	DO 971 j=1,c
+		infi=x(1,j)
+		x(1,j)=x(r,j)
+		x(r,j)=infi
+		infir=xr(1,j)
+		xr(1,j)=xr(r,j)
+		xr(r,j)=infir
+  971 Continue
+	ndes=2
+	desha(1)=r
+	desha(2)=1
+	GOTO 1100
+c
+c   First row, positive adjustment. Last row, 0 adjustment.
+c
+  985	ajf(1)=ajf(1)-1
+	cajn=cajn+1
+	fi1=fajn(cajn)
+c
+	DO 973 j=1,c
+		infi=x(r,j)
+		x(r,j)=x(1,j)
+		x(1,j)=x(fi1,j)
+		x(fi1,j)=infi
+		infir=xr(r,j)
+		xr(r,j)=xr(1,j)
+		xr(1,j)=xr(fi1,j)
+		xr(fi1,j)=infir
+  973 Continue
+	ajf(fi1)=ajf(fi1)+1
+	ndes=3
+	desha(1)=r
+	desha(2)=1
+	desha(3)=fi1
+	GOTO 1100
+c
+c   First row and last row already adjusted. Adjust intermediate rows.
+c
+ 1000	indpaso=2
+ 1001	IF(cpmam.EQ.najfp) GOTO 990
+	cajn=cajn+1
+	cajp=cajp+1
+	fi1=fajn(cajn)
+	fir=fajp(cajp)
+c 
+	DO 987 j=1,c
+		infi=x(1,j)
+		x(1,j)=x(fi1,j)
+		x(fi1,j)=infi
+		infi=x(r,j)
+		x(r,j)=x(fir,j)
+		x(fir,j)=infi
+		infir=xr(1,j)
+		xr(1,j)=xr(fi1,j)
+		xr(fi1,j)=infir
+		infir=xr(r,j)
+		xr(r,j)=xr(fir,j)
+		xr(fir,j)=infir
+  987 Continue
+	ajf(fi1)=ajf(fi1)+1
+	ajf(fir)=ajf(fir)-1
+c
+c
+c   Step 7 (continued). Row adjustment begins (subtracting
+c   1 in the first row and adding 1 in the last row). 
+c   Checking at each step that the table obtained is an MPT.
+c
+ 1100	cpmam=cpmam+1
+c	WRITE(0,*)
+c
+c   Adjust using only the sequences without backtracking.
+c
+	ipr=1
+c
+c   Step 7c: calculation of the xij/(xij+1) values and
+c   obtaining the maximum values for each step.
+c
+c   For steps without backtracking.
+c
+	DO 20 i=1,rm(1)
+	DO 20 j=i+1,r
+		valm(i,j)=0
+	DO 22 jc=1,c
+		epsival=valm(i,j)*epsi10
+		valms=valm(i,j)+epsival
+		v=xr(i,jc)/(xr(j,jc)+1)
+		IF(v.GT.valms) THEN
+			valm(i,j)=v
+			col(i,j)=jc
+		ENDIF
+   22 Continue
+   20 Continue
+c
+	GOTO 25
+c
+c   For steps with backtracking (when using sequences 
+c   with and without backtracking).
+c
+   80 ipr=2
+	DO 180 i=3,rm(1)
+	DO 180 j=2,i-1
+		valm(i,j)=0
+	DO 182 jc=1,c
+		epsival=valm(i,j)*epsi10
+		valms=valm(i,j)+epsival
+		v=xr(i,jc)/(xr(j,jc)+1)
+c		IF(v.EQ.0.OR.v.LT.valm(i,j)) GOTO 182
+		IF(v.GT.valms) THEN
+			valm(i,j)=v
+c			ncol(i,j)=1
+			col(i,j)=jc
+c			col(i,j,ncol(i,j))=jc
+c			GOTO 182
+		ENDIF
+c		ncol(i,j)=ncol(i,j)+1
+c		col(i,j,ncol(i,j))=jc
+  182 Continue
+  180 Continue
+c
+c   
+   25	IF(ipr.EQ.2) GOTO 1035
+c
+c
+c
+	DO 26 i=1,rm(1)
+		i1=i+1
+		valmac(i,i1)=valm(i,i1)
+		ival(i,i1)=1
+   26 Continue
+c
+	DO 30 in=2,rm(1)
+	DO 30 i=1,r-in
+		j=i+in
+		valmac(i,j)=valm(i,j)
+		ival(i,j)=1
+		epsival=valm(i,j)*epsi10
+		valmi=valm(i,j)-epsival
+		valms=valm(i,j)+epsival
+	DO 34 ifi=i+1,j-1
+		prod=valmac(i,ifi)*valmac(ifi,j)
+		IF(prod.GE.valmac(i,j)-epsival) THEN
+			valmac(i,j)=prod
+			ipro(i,j)=ifi
+			ival(i,j)=3
+		ENDIF
+   34 Continue
+		IF(valmac(i,j).GT.valmi.AND.valmac(i,j).LT.valms.
+     +AND.ival(i,j).EQ.3) THEN
+		ival(i,j)=2
+		ENDIF
+   30 Continue
+c
+c   Step 7d: Obtaining the sequence with backtracking with the highest
+c   associated value.
+c
+	IF(ival(1,r).LT.3) THEN
+		secu(1)=r
+		npsec=1
+		GOTO 40
+	ENDIF
+	npsec=0
+	i=1
+	j=r
+	nppana=0
+   35	ifi=ipro(i,j)
+	nppana=nppana+1
+	ppana(nppana,1)=ifi
+	ppana(nppana,2)=j
+c
+c
+	j=ifi
+   45	IF(ival(i,j).LT.3) THEN
+		secu(i)=j
+		npsec=npsec+1
+		GOTO 46
+	ENDIF
+	GOTO 35
+c
+c
+   46	IF(nppana.EQ.0) GOTO 40
+	i=ppana(nppana,1)
+	j=ppana(nppana,2)
+	nppana=nppana-1
+	GOTO 45
+c
+c
+   40 iq=1
+	DO 48 i1=1,npsec						
+		secuf(i1,1)=iq
+		secuf(i1,2)=secu(iq)
+		iq=secu(iq)
+		i9=secuf(i1,1)
+		j9=secuf(i1,2)
+		secuf(i1,3)=col(i9,j9)
+   48 Continue
+c
+c
+   61	vsec=1
+	DO 75 i5=1,npsec
+		vsec=vsec*valm(secuf(i5,1),secuf(i5,2))
+   75 Continue
+	epsival=valmac(1,r)*epsi10
+	valmi=valmac(1,r)-epsival
+	valms=valmac(1,r)+epsival
+	IF(vsec.LT.valmi.OR.vsec.GT.valms) THEN
+		WRITE(0,*)
+		WRITE(0,*) 'Ojo con el valor de la secuencia.'
+	ENDIF
+c
+c   Application of the sequence without backtracking to the 
+c   MPT prior to adjustment.
+c
+	DO 65 i5=1,npsec
+		x(secuf(i5,1),secuf(i5,3))=x(secuf(i5,1),secuf(i5,3))-1
+		x(secuf(i5,2),secuf(i5,3))=x(secuf(i5,2),secuf(i5,3))+1
+		xr(secuf(i5,1),secuf(i5,3))=xr(secuf(i5,1),secuf(i5,3))-1
+		xr(secuf(i5,2),secuf(i5,3))=xr(secuf(i5,2),secuf(i5,3))+1
+   65 Continue
+c
+c
+	GOTO 1010
+c
+c 
+c   Performing the step (adjustment) using all sequences 
+c   (with and without backtracking).
+c
+c   Start of generating all sequences, calculating their value associated
+c   and obtaining (and storing) the one with the maximum value.
+c
+c   Tables 2xc and 3xc are not considered (they have no sequences 
+c   with backtracking).
+c   For 4xc tables, this is done directly. For 5xc tables 
+c   onwards (up to 11xc), a base table is first obtained
+c   which serves as a template to obtain the sequences.
+c
+c   Sequences for 4xc tables.
+c
+ 1035 WRITE(0,*) 
+	IF(r.GT.4) GOTO 170
+	ntsg=5
+	seac(1)=1
+	seac(2)=4
+	vseac=valm(1,4)
+	vmsc=vseac
+	semax(1)=seac(1)
+	semax(2)=seac(2)
+	npsem=1
+c
+c
+	seac(2)=2
+	seac(3)=4
+	vseac=valm(1,2)*valm(2,4)
+	IF(vseac.GT.vmsc) THEN
+		vmsc=vseac
+		semax(1)=seac(1)
+		semax(2)=seac(2)
+		semax(3)=seac(3)
+		npsem=2
+	ENDIF
+c
+	seac(2)=3
+	vseac=valm(1,3)*valm(3,4)
+	IF(vseac.GT.vmsc) THEN
+		vmsc=vseac
+		semax(1)=seac(1)
+		semax(2)=seac(2)
+		semax(3)=seac(3)
+		npsem=2
+	ENDIF	
+c
+	seac(2)=2
+	seac(3)=3
+	seac(4)=4
+	vseac=valm(1,2)*valm(2,3)*valm(3,4)
+	IF(vseac.GT.vmsc) THEN
+		vmsc=vseac
+		semax(1)=seac(1)
+		semax(2)=seac(2)
+		semax(3)=seac(3)
+		semax(4)=seac(4)
+		npsem=3
+	ENDIF	
+c
+	seac(2)=3
+	seac(3)=2
+	vseac=valm(1,3)*valm(3,2)*valm(2,4)
+	IF(vseac.GT.vmsc) THEN
+		vmsc=vseac
+		semax(1)=seac(1)
+		semax(2)=seac(2)
+		semax(3)=seac(3)
+		semax(4)=seac(4)
+		npsem=3
+	ENDIF	
+c
+	GOTO 190
+c
+c   Sequences for tables 5xc to 11xc.
+c   First, the one-step and two-step sequences are generated directly. 
+c
+c 
+  170	WRITE(0,*)
+	seac(1)=1
+	seac(2)=r
+	vseac=valm(1,r)
+	vmsc=vseac
+	semax(1)=1
+	semax(2)=r
+	npsem=1
+c
+c
+	epsival=vmsc*epsi10
+	seac(3)=r
+	DO 172 i=2,rm(1)
+		seac(2)=i
+		vseac=valm(1,i)*valm(i,r)
+		IF(vseac.GT.vmsc+epsival) THEN
+			vmsc=vseac
+			semax(2)=i
+			semax(3)=r
+			npsem=2
+			epsival=vmsc*epsi10
+		ENDIF
+c
+  172 Continue
+c
+	ntsg=rm(1)
+c
+c   Obtaining the base table (template) to generate sequences of more 
+c   than two steps, in tables 5xc to 11xc. Intermediate rows are denoted 
+c   by their order number: c   1,2,3,...(that correspond to the rows 2, 3, 
+c   4,....). But row 1 is not considered in the template, since the first 
+c   column of the base table is always 1.
+c
+   	DO 158 i=1,rm(4)
+		cp(i,i)=i
+	DO 158 j=i-1,1,-1
+		cp(i,j)=cp(i,j+1)*j
+  158 Continue
+	nfic=2
+  160	DO 118 j=2,nfic
+		pf2(j)=0
+  118 Continue
+	DO 119 i=1,rm(3)
+		fili(1,i)=i+1
+  119 Continue
+	ipr2=rm(1)-nfic
+c
+c
+	DO 120 k1=1,rm(3)
+		pf1(2)=pf2(2)+1
+		IF(ipr2.GT.rm(4)) THEN
+			pf2(2)=pf1(2)
+		ELSE
+			pf2(2)=pf2(2)+cp(rm(4),ipr2)
+		ENDIF
+	DO 123 j1=pf1(2),pf2(2)
+		tabase(j1,2)=fili(1,k1)
+  123 Continue
+		IF(rm(3).EQ.2.AND.pf1(2).EQ.pf2(2)) THEN
+			k1p=k1+(-1)**(k1+1)
+			tabase(pf1(2),3)=fili(1,k1p)
+		ENDIF
+		IF(nfic.EQ.2) GOTO 120
+c
+	DO 121 j1=1,k1-1
+		fili(2,j1)=fili(1,j1)
+  121 Continue
+	DO 122 j1=k1+1,rm(3)
+		fili(2,j1-1)=fili(1,j1)
+  122 Continue
+c
+c
+	DO 125 k2=1,rm(4)
+		pf1(3)=pf2(3)+1
+		IF(ipr2.GT.rm(5)) THEN
+			pf2(3)=pf1(3)
+		ELSE
+			pf2(3)=pf2(3)+cp(rm(5),ipr2)
+		ENDIF
+	DO 126 j1=pf1(3),pf2(3)
+		tabase(j1,3)=fili(2,k2)
+  126 Continue
+		IF(rm(4).EQ.2.AND.pf1(3).EQ.pf2(3)) THEN
+			k2p=k2+(-1)**(k2+1)
+			tabase(pf1(3),4)=fili(2,k2p)
+		ENDIF
+		IF(nfic.EQ.3) GOTO 125
+c
+	DO 127 j1=1,k2-1
+		fili(3,j1)=fili(2,j1)
+  127 Continue
+	DO 128 j1=k2+1,rm(4)
+		fili(3,j1-1)=fili(2,j1)
+  128 Continue
+c
+c
+	DO 130 k3=1,rm(5)
+		pf1(4)=pf2(4)+1
+		IF(ipr2.GT.rm(6)) THEN
+			pf2(4)=pf1(4)
+		ELSE
+			pf2(4)=pf2(4)+cp(rm(6),ipr2)
+		ENDIF
+	DO 131 j1=pf1(4),pf2(4)
+		tabase(j1,4)=fili(3,k3)
+  131 Continue
+		IF(rm(5).EQ.2.AND.pf1(4).EQ.pf2(4)) THEN
+			k3p=k3+(-1)**(k3+1)
+			tabase(pf1(4),5)=fili(3,k3p)
+		ENDIF
+		IF(nfic.EQ.4) GOTO 130
+c
+	DO 132 j1=1,k3-1
+		fili(4,j1)=fili(3,j1)
+  132 Continue
+	DO 133 j1=k3+1,rm(5)
+		fili(4,j1-1)=fili(3,j1)
+  133 Continue
+c
+c
+	DO 135 k4=1,rm(6)
+		pf1(5)=pf2(5)+1
+		IF(ipr2.GT.rm(7)) THEN
+			pf2(5)=pf1(5)
+		ELSE
+			pf2(5)=pf2(5)+cp(rm(7),ipr2)
+		ENDIF
+	DO 136 j1=pf1(5),pf2(5)
+		tabase(j1,5)=fili(4,k4)
+  136 Continue
+		IF(rm(6).EQ.2.AND.pf1(5).EQ.pf2(5)) THEN
+			k4p=k4+(-1)**(k4+1)
+			tabase(pf1(5),6)=fili(4,k4p)
+		ENDIF
+		IF(nfic.EQ.5) GOTO 135
+c
+	DO 137 j1=1,k4-1
+		fili(5,j1)=fili(4,j1)
+  137 Continue
+	DO 138 j1=k4+1,rm(6)
+		fili(5,j1-1)=fili(4,j1)
+  138 Continue
+c
+c
+	DO 140 k5=1,rm(7)
+		pf1(6)=pf2(6)+1
+		IF(ipr2.GT.rm(8)) THEN
+			pf2(6)=pf1(6)
+		ELSE
+			pf2(6)=pf2(6)+cp(rm(8),ipr2)
+		ENDIF
+	DO 141 j1=pf1(6),pf2(6)
+		tabase(j1,6)=fili(5,k5)
+  141 Continue
+		IF(rm(7).EQ.2.AND.pf1(6).EQ.pf2(6)) THEN
+			k5p=k5+(-1)**(k5+1)
+			tabase(pf1(6),7)=fili(5,k5p)
+		ENDIF
+		IF(nfic.EQ.6) GOTO 140
+c
+	DO 142 j1=1,k5-1
+		fili(6,j1)=fili(5,j1)
+  142 Continue
+	DO 143 j1=k5+1,rm(7)
+		fili(6,j1-1)=fili(5,j1)
+  143 Continue
+c
+c
+	DO 145 k6=1,rm(8)
+		pf1(7)=pf2(7)+1
+		IF(ipr2.GT.rm(9)) THEN
+			pf2(7)=pf1(7)
+		ELSE
+			pf2(7)=pf2(7)+cp(rm(9),ipr2)
+		ENDIF
+	DO 146 j1=pf1(7),pf2(7)
+		tabase(j1,7)=fili(6,k6)
+  146 Continue
+		IF(rm(8).EQ.2.AND.pf1(7).EQ.pf2(7)) THEN
+			k6p=k6+(-1)**(k6+1)
+			tabase(pf1(7),8)=fili(6,k6p)
+		ENDIF
+		IF(nfic.EQ.7) GOTO 145
+c
+	DO 147 j1=1,k6-1
+		fili(7,j1)=fili(6,j1)
+  147 Continue
+	DO 148 j1=k6+1,rm(8)
+		fili(7,j1-1)=fili(6,j1)
+  148 Continue
+c
+c
+	DO 150 k7=1,rm(9)
+		pf1(8)=pf2(8)+1
+		IF(ipr2.GT.rm(10)) THEN
+			pf2(8)=pf1(8)
+		ELSE
+			pf2(8)=pf2(8)+cp(rm(10),ipr2)
+		ENDIF
+	DO 151 j1=pf1(8),pf2(8)
+		tabase(j1,8)=fili(7,k7)
+  151 Continue
+		IF(rm(9).EQ.2.AND.pf1(8).EQ.pf2(8)) THEN
+			k7p=k7+(-1)**(k7+1)
+			tabase(pf1(8),9)=fili(7,k7p)
+		ENDIF
+c
+c
+  150 Continue
+  145 Continue
+  140 Continue
+  135 Continue
+  130 Continue
+  125 Continue
+  120 Continue
+c
+c
+c   Start of the generation of sequences with and without backtracking
+c   of more than two steps, taking the base tables obtained as a template. 
+c
+	nfic1=nfic+1
+	nfic2=nfic+2
+	seac(nfic2)=r
+	DO 173 i2=1,rm(2)
+		vfi(i2)=i2+1
+  173 Continue
+c	WRITE(0,*)
+	DO 175 ig=2,rm(1)
+		seac(2)=ig
+	DO 177 j1=1,pf2(2)
+		vseac=valm(1,ig)
+	DO 178 j2=2,nfic
+		seac(j2+1)=vfi(tabase(j1,j2))
+		vseac=vseac*valm(seac(j2),seac(j2+1))
+  178 Continue
+		vseac=vseac*valm(seac(nfic1),r)
+c
+		epsival=vmsc*epsi10
+		IF(vseac.GT.vmsc+epsival) THEN
+			vmsc=vseac
+			npsem=nfic1
+		DO 168 j3=1,nfic2
+			semax(j3)=seac(j3)
+  168 Continue
+  		ENDIF
+  177 Continue
+		ntsg=ntsg+pf2(2)
+		ite=vfi(1)
+		vfi(1)=vfi(ig)
+		vfi(ig)=ite
+c		WRITE(0,*)
+		IF(ig.EQ.rm(1)) GOTO 175
+c
+  175 Continue
+c
+c 
+	IF(nfic.LT.rm(3)) THEN
+		nfic=nfic+1
+		GOTO 160
+	ENDIF
+c
+c 
+	nfic=rm(2)
+	seac(r)=r
+	DO 183 i2=1,rm(2)
+		vfi(i2)=i2+1
+c	
+  183 Continue
+c	
+	DO 185 ig=2,rm(1)
+		seac(2)=ig
+	DO 187 j1=1,pf2(2)
+		vseac=valm(1,ig)
+	DO 188 j2=2,nfic
+		seac(j2+1)=vfi(tabase(j1,j2))
+		vseac=vseac*valm(seac(j2),seac(j2+1))
+  188 Continue
+		vseac=vseac*valm(seac(rm(1)),r)
+c
+		epsival=vmsc*epsi10
+		IF(vseac.GT.vmsc+epsival) THEN
+			vmsc=vseac
+			npsem=rm(1)
+		DO 169 j3=1,r
+			semax(j3)=seac(j3)
+  169 Continue
+  		ENDIF
+  187 Continue
+		ntsg=ntsg+pf2(2)
+		ite=vfi(1)
+		vfi(1)=vfi(ig)
+		vfi(ig)=ite
+c
+		IF(ig.EQ.rm(1)) GOTO 185
+c
+  185 Continue
+c
+c   Apply the maximum value sequence (with and without backtracking)
+c   to the MPT to be adjusted.
+c
+  190	DO 565 i5=1,npsem
+		i51=semax(i5)
+		i52=semax(i5+1)
+		x(i51,col(i51,i52))=x(i51,col(i51,i52))-1
+		x(i52,col(i51,i52))=x(i52,col(i51,i52))+1
+		xr(i51,col(i51,i52))=xr(i51,col(i51,i52))-1
+		xr(i52,col(i51,i52))=xr(i52,col(i51,i52))+1
+  565 Continue
+
+c
+c
+c   Check if the tables (the starting table, the intermediate steps
+c   tables and the final table) are really a MPT. For this purpose, 
+c   its U table is calculated: if the calculation is not possible, 
+c   it is not a MPT.
+c
+c
+c   Start of calculation of the U table.
+c
+ 1010	netap=1
+c
+	DO 420 ix=2,r
+c
+	DO 420 hx=1,ix-1
+	DO 430 j3=1,c
+		rhi1e(1,j3)=xr(ix,j3)/(xr(hx,j3)+1)
+		rhi1e(2,j3)=(xr(ix,j3)+1)/xr(hx,j3)
+  430 Continue
+		ietac=1
+		ma=rhi1e(1,1)
+		mi=rhi1e(2,1)
+	DO 435 j10=2,c
+		ma=MAX(ma,rhi1e(1,j10))
+		mi=MIN(mi,rhi1e(2,j10))
+  435 Continue
+c
+		epsi3=epsi50*ma
+		valinf3=ma-epsi3
+		valsup3=ma+epsi3
+		IF(mi.GT.valinf3.AND.mi.LT.valsup3) mi=ma
+c
+		varhi(ietac,1,hx,ix)=ma
+		varhi(ietac,2,hx,ix)=mi
+c
+  420 Continue
+c
+c   The recursive process of calculating the U Table begins: steps 2, 3,...
+c
+  465 netap=netap+1
+	IF(ietac.EQ.1) THEN
+		ietac=2
+		ietan=1
+		ELSE
+		ietac=1
+		ietan=2
+	ENDIF
+c
+	DO 450 ix=2,r
+c	
+	DO 450 hx=1,ix-1
+		kp=0
+	DO 453 ht=1,hx
+	DO 453 it=ix,r
+		kp=kp+1
+		IF(kp.GT.90) STOP 'Kp value greater than 90'
+		rhipr(1,kp)=varhi(ietan,1,ht,it)/(varhi(ietan,2,ht,hx)*
+     +	varhi(ietan,2,ix,it))
+		rhipr(2,kp)=varhi(ietan,2,ht,it)/(varhi(ietan,1,ht,hx)*
+     +	varhi(ietan,1,ix,it))
+  453 Continue
+	IF(hx.EQ.ix-1) GOTO 510
+	DO 515 jt=hx+1,ix-1
+		kp=kp+1
+		IF(kp.GT.90) STOP 'Kp value greater than 90'
+		rhipr(1,kp)=varhi(ietan,1,hx,jt)*varhi(ietan,1,jt,ix)
+		rhipr(2,kp)=varhi(ietan,2,hx,jt)*varhi(ietan,2,jt,ix)
+  515 Continue
+  510		ma=rhipr(1,1)
+		mi=rhipr(2,1)
+	DO 455 j10=2,kp
+		ma=MAX(ma,rhipr(1,j10))
+		mi=MIN(mi,rhipr(2,j10))
+  455 Continue
+c
+		epsi3=epsi50*ma
+		valinf3=ma-epsi3
+		valsup3=ma+epsi3
+		IF(mi.GT.valinf3.AND.mi.LT.valsup3) mi=ma
+c
+		varhi(ietac,1,hx,ix)=ma
+		varhi(ietac,2,hx,ix)=mi
+c
+  450 Continue
+c
+c   Controlling the end of the recursive process.
+c
+	ind=0
+	DO 460 ix=2,r
+	DO 460 hx=1,ix-1
+		epsi1=epsi1000*varhi(ietan,1,hx,ix)
+		epsi2=epsi1000*varhi(ietan,2,hx,ix)
+		valinf2=varhi(ietan,1,hx,ix)+epsi1
+		valsup1=varhi(ietan,2,hx,ix)-epsi2
+		IF(varhi(ietac,1,hx,ix).GT.valinf2) THEN
+		ind=1
+		EXIT
+		ENDIF
+c
+		IF(varhi(ietac,2,hx,ix).LT.valsup1) THEN
+		ind=1
+		EXIT
+		ENDIF
+  460	Continue
+	IF(ind.EQ.1) GOTO 465
+c
+c   Ending the recursive process, calculation of the final values
+c   of the ratios r1, r2,...
+c
+c
+	IF(varhi(ietac,2,1,2).GT.1.5E37) THEN
+		vfrhi(1,2)=varhi(ietac,1,1,2)*10+1
+	ELSE
+		vfrhi(1,2)=(varhi(ietac,1,1,2)+varhi(ietac,2,1,2))/2
+	ENDIF
+	vfr(3,1)=vfrhi(1,2)
+	vfr(1,1)=varhi(ietac,1,1,2)
+	vfr(2,1)=varhi(ietac,2,1,2)
+	IF(r.EQ.2) GOTO 476
+c
+c
+	DO 470 ix=2,r-1
+		IF(ix.LT.3) GOTO 472
+	DO 475 it=ix-2,1,-1
+		vfrhi(it,ix)=vfrhi(it,it+1)*vfrhi(it+1,ix)
+  475 Continue
+  472		ma=varhi(ietac,1,ix,ix+1)
+		mi=varhi(ietac,2,ix,ix+1)
+	DO 480 it2=1,ix-1
+		ma1=varhi(ietac,1,it2,ix+1)/vfrhi(it2,ix)
+		mi1=varhi(ietac,2,it2,ix+1)/vfrhi(it2,ix)
+		ma=MAX(ma,ma1)
+		mi=MIN(mi,mi1)
+  480 Continue
+		vfr(1,ix)=ma
+		vfr(2,ix)=mi
+		IF(mi.GT.1.5E37) THEN
+			vfr(3,ix)=ma*10+1
+		ELSE
+			vfr(3,ix)=(ma+mi)/2
+		ENDIF
+		vfrhi(ix,ix+1)=vfr(3,ix)
+  470 Continue
+c
+	IF(r.EQ.2) GOTO 476
+	DO 511 ix=3,r
+		vfrhi(1,ix)=vfrhi(1,ix-1)*vfrhi(ix-1,ix)
+  511 Continue
+c
+c   Write the limits and values of r1, r2,...
+c
+  476 id23=0
+	DO 485 ix=1,r-1
+c
+		epsi2=epsi100*vfr(2,ix)
+		valsup2=vfr(2,ix)+epsi2	
+		IF(vfr(2,ix).LE.0.OR.vfr(1,ix).GT.valsup2) id23=1
+  485 Continue
+c
+	IF(id23.EQ.1) THEN
+		IF(ipr.EQ.1.AND.r.GT.3) GOTO 1030
+		STOP ' Stop. The table is not a maximum probability table'
+	ENDIF
+c
+	IF(cpmam.LT.najfp) GOTO 1025
+c
+c  Calculation of epsilon1j
+c
+	DO 490 jx=1,c
+		ma=0
+		mi=1
+	DO 495 ix=2,r
+		ma1=(xr(ix,jx)/vfrhi(1,ix))-xr(1,jx)
+		mi1=((xr(ix,jx)+1)/vfrhi(1,ix))-xr(1,jx)
+		ma=MAX(ma,ma1)
+		mi=MIN(mi,mi1)
+  495 Continue
+	epsi1j(1,jx)=ma
+	epsi1j(2,jx)=mi
+	epsi1j(3,jx)=(ma+mi)/2
+	IF(epsi1j(3,jx).LT.0) epsi1j(3,jx)=0
+  490 Continue
+c
+c
+c   End of U table calculation.
+c
+	DO 500 jx=1,c
+		tu(1,jx)=xr(1,jx)+epsi1j(3,jx)
+	DO 500 ix=2,r
+		tu(ix,jx)=tu(ix-1,jx)*vfrhi(ix-1,ix)
+  500 Continue
+c
+c
+ 1025	IF(indpaso.EQ.0) GOTO 1015
+c
+c
+c   Undo row changes made prior to the current step performed.
+c
+	IF(indpaso.EQ.2) GOTO 1020
+c
+c   Case of first and/or last row involved.
+c
+	IF(ndes.EQ.0) GOTO 1016
+	DO 963 j=1,c
+		infi=x(desha(ndes),j)
+		infir=xr(desha(ndes),j)
+	DO 966 i5=ndes,2,-1
+		x(desha(i5),j)=x(desha(i5-1),j)
+		xr(desha(i5),j)=xr(desha(i5-1),j)
+  966 Continue
+		x(desha(1),j)=infi
+		xr(desha(1),j)=infir
+  963 Continue
+c
+	IF(cpmam.LT.najfp) GOTO 1016
+	DO 961 j=1,c
+		destu=tu(desha(ndes),j)
+	DO 968 i5=ndes,2,-1
+		tu(desha(i5),j)=tu(desha(i5-1),j)
+  968 Continue
+		tu(desha(1),j)=destu
+  961 Continue
+	GOTO 1016
+c
+c   Case of only intermediate rows involved.
+c
+ 1020 DO 988 j=1,c
+		infi=x(1,j)
+		x(1,j)=x(fi1,j)
+		x(fi1,j)=infi
+		infi=x(r,j)
+		x(r,j)=x(fir,j)
+		x(fir,j)=infi
+		infir=xr(1,j)
+		xr(1,j)=xr(fi1,j)
+		xr(fi1,j)=infir
+		infir=xr(r,j)
+		xr(r,j)=xr(fir,j)
+		xr(fir,j)=infir
+		IF(cpmam.LT.najfp) GOTO 988
+		destu=tu(1,j)
+		tu(1,j)=tu(fi1,j)
+		tu(fi1,j)=destu
+		destu=tu(r,j)
+		tu(r,j)=tu(fir,j)
+		tu(fir,j)=destu
+  988 Continue
+c
+c
+ 1016	WRITE(0,*)
+c 
+c 
+c
+c   Go to preparations for a new adjustment (step).
+c
+	IF(indpaso.EQ.1) GOTO 960
+	IF(indpaso.EQ.2) GOTO 1001
+c
+c
+c   Undo the application of the backtracking sequence made in this 
+c   adjustment to the MPT, in order to be able to apply the process with 
+c   sequences with backtracking and without backtracking.
+c
+ 1030	DO 67 i5=1,npsec
+		x(secuf(i5,1),secuf(i5,3))=x(secuf(i5,1),secuf(i5,3))+1
+		x(secuf(i5,2),secuf(i5,3))=x(secuf(i5,2),secuf(i5,3))-1
+		xr(secuf(i5,1),secuf(i5,3))=xr(secuf(i5,1),secuf(i5,3))+1
+		xr(secuf(i5,2),secuf(i5,3))=xr(secuf(i5,2),secuf(i5,3))-1
+   67 Continue
+	GOTO 80
+c
+c
+c   Check the marginal totals and calculate the probability of the MPT.
+c
+  990 DO 506 i=1,r
+		mf(i)=0
+	DO 567 j=1,c
+		mf(i)=mf(i)+x(i,j)
+  567 Continue
+		IF(mf(i).NE.mfp(i)) STOP 'ERROR IN THE FINAL ROW MARGINALS.'
+  506 Continue
+c
+	DO 507 j=1,c
+		mc(j)=0
+	DO 568 i=1,r
+		mc(j)=mc(j)+x(i,j)
+  568 Continue
+		IF(mc(j).NE.mcp(j)) STOP 'ERROR IN THE FINAL COLUMN MARGINALS.'  	
+  507 Continue	
+c
+c   Calculation of the sum of the logarithms of the factorials of xij.
+c
+	lofxij=0
+	DO 580 i=1,r
+	DO 580 j=1,c
+		lofxij=lofxij+lofac(x(i,j))
+  580 Continue  
+c
+	loprob=lofrcn-lofxij  
+	prob=10**loprob 
+c
+c
+c   Stop the stopwatch.
+c
+      CALL GETTIM(ihf,imf,isf,icsf)
+c
+c
+c   Write the rxc table of maximum probability and its marginal totals.
+c
+      WRITE(0,'(///A37/)') ' MAXIMUM PROBABILITY rxc TABLE (MPT):'
+      DO 1408 i=1,r
+          DO 1409 j=1,c
+              WRITE(0,'(2X,I5\)') x(i,j)
+ 1409     Continue
+          WRITE(0,'(1X)')
+ 1408 Continue
+c
+	WRITE(0,*)
+	WRITE(0,*)
+      WRITE(0,'(A3,I3)') ' r=',r
+      WRITE(0,'(A18\)') ' Row marginals:   '
+      DO 1406 i=1,r
+		WRITE(0,'(1X,I5\)') mf(i)
+ 1406 Continue
+      WRITE(0,'(1X)')
+c	WRITE(0,*)
+      WRITE(0,'(A3,I3)') ' c=',c
+      WRITE(0,'(A19\)') ' Column marginals :'
+      DO 1407 j=1,c
+		WRITE(0,'(1X,I5\)') mc(j)
+ 1407 Continue
+      WRITE(0,'(1X)')
+c
+	WRITE(0,*)
+	WRITE(0,*)
+	WRITE(0,*) 'Probability of the rxc table =',prob
+	WRITE(0,*)
+c
+c
+c   Write the associated U Table.
+c
+	WRITE(0,*)      
+	WRITE(0,*)	
+	WRITE(0,'(/A21)') ' ASSOCIATED U TABLE :'
+      DO 1508 i=1,r
+          DO 1509 j=1,c
+              WRITE(0,'(1X,F10.3\)') tu(i,j)
+ 1509     Continue
+          WRITE(0,'(1X)')
+ 1508 Continue
+	WRITE(0,*)
+c      
+	WRITE(0,*)
+c
+c
+c   Write the computation time.
+c
+	WRITE(0,*)
+	WRITE(0,*)
+	WRITE(0,*)
+	IF(ihf.LT.ihi) ihf=24+ihf
+	IF(icsf.LT.icsi) THEN
+		isf=isf-1
+		icst=100+icsf-icsi
+		ELSE
+		icst=icsf-icsi
+	ENDIF
+	IF(isf.LT.isi) THEN
+		imf=imf-1
+		ist=60+isf-isi
+		ELSE
+		ist=isf-isi
+	ENDIF
+	IF(imf.LT.imi) THEN
+		ihf=ihf-1
+		imt=60+imf-imi
+		ELSE
+		imt=imf-imi
+	ENDIF	
+      iht=ihf-ihi
+	seg=REAL(icst)/100+ist
+      WRITE(0,'(/A17,I3,A7,I3,A9,F6.2,A9)') ' COMPUTING TIME: ',iht,
+     +	' hours ',imt,' minutes ',seg,' seconds.'  
+	WRITE(0,*)
+	WRITE(0,*)
+c	 
+c 
+c	 
+c 
+ 1111	WRITE(*,*) 
+	WRITE(*,*) 'Enter any character to finish'
+	READ(*,*) aa
+c
+ 	END
+       

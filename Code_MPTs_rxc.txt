@@ -1,0 +1,921 @@
+c   Source program: MPTs_rxc.for.
+c   
+c
+c   From a maximum probability table (MPT), for given marginal totals,  
+c   a U table associated with this MPT is obtained, and from it all 
+c   the MPTs are obtained (for those marginal totals).
+c
+c   The program is valid for tables up to 11x30.
+c
+c   The program allows you to write the desired number of MPTs.
+c  
+      IMPLICIT INTEGER*2 (i,j,k)
+      INTEGER*2 r,c,error,ietac,ietan,kp,netap,hx,ht,id23
+      INTEGER*2 mf[ALLOCATABLE](:),mc[ALLOCATABLE](:),
+     +	x[ALLOCATABLE](:,:)
+	REAL idpr,epsir,ma,mi,ma1,mi1,rhipr(2,90),epsir1,epsir2,valinf1,
+     +	valinf2,valsup1,valsup2,valinf3,valsup3,epsi3,epsi2,
+     +    epsi50,epsi100,epsi1000
+      REAL tu[ALLOCATABLE](:,:),varhi[ALLOCATABLE](:,:,:,:),
+     +	vfr[ALLOCATABLE](:,:),epsi1j[ALLOCATABLE](:,:),
+     +	rhi1e[ALLOCATABLE](:,:),vfrhi[ALLOCATABLE](:,:),
+     +	xr[ALLOCATABLE](:,:)
+c 
+c   Definition of types of variables and matrices.
+c
+      INTEGER*4 ntm,nmg,maac,nmama,maact,maacan,nmaxgennov,
+     +    maxgene(500000),nmaxgenv,nord,k30,k22,nf,nc,i44   
+      INTEGER*2 nfop,ncop,klim,incre,incre1,incre2,
+     +    increm1,iop,con,id,id2,cb,clf,mf1,mc1
+      INTEGER*2 mopc(600,8)
+      INTEGER*2 
+     +    mft[ALLOCATABLE](:),mct[ALLOCATABLE](:),
+     +	afo[ALLOCATABLE](:),aco[ALLOCATABLE](:),
+     +	tb[ALLOCATABLE](:,:),copmt[ALLOCATABLE](:),
+     +    copf[ALLOCATABLE](:,:),ncopf[ALLOCATABLE](:),
+     +	fop[ALLOCATABLE](:),cop[ALLOCATABLE](:),
+     +	incref[ALLOCATABLE](:),increco[ALLOCATABLE](:,:),
+     +    ncaslib[ALLOCATABLE](:,:),gemax[ALLOCATABLE](:,:,:),
+     +	cobl[ALLOCATABLE](:),ncasbl[ALLOCATABLE](:),
+     +    casbl[ALLOCATABLE](:,:),ncaslibt[ALLOCATABLE](:),
+     +    tamax[ALLOCATABLE](:,:,:)
+      REAL seg
+	DOUBLE PRECISION lofac[ALLOCATABLE](:),lofacc1,lofacc2,lofacct,
+     +    idp,epsi,lofacc,lofrcn,loprob,prob
+c 
+c
+c   Open results file.
+c
+      OPEN (0,file='output_2.txt')
+c
+	idpr=1
+	epsir=epsilon(idpr)
+c
+	idp=1
+	epsi=epsilon(idp)
+c
+	epsi50=epsir*50
+	epsi100=epsir*100
+	epsi1000=epsir*1000
+c
+c   Presentation of the program.	 
+c
+      WRITE(*,*) ' CALCULATION OF ALL THE MPTs (MAXIMUM PROBABILITY 
+     *rxc TABLES),'
+      WRITE(*,*) ' starting from one of the MPTs. '
+      WRITE(*,*) ' For fixed marginal sums, and assuming independence 
+     *between rows and columns.'
+ 	write(*,*)
+	write(*,*) '(Valid for values of r no higher than 11, and 
+     *values of c no higher than 30)'
+	WRITE(*,*)
+	WRITE(*,*) '(See the results in the file output_2.txt) '
+	WRITE(*,*)
+c
+      WRITE(0,*) ' CALCULATION OF ALL THE MPTs (MAXIMUM PROBABILITY 
+     *rxc TABLES),'
+      WRITE(0,*) ' starting from one of the MPTs. '
+      WRITE(0,*) ' For fixed marginal sums, and assuming independence 
+     *between rows and columns.'
+ 	write(0,*)
+	write(0,*)
+c
+c   Read the number of rows.
+c
+	write(*,'(//)')
+	WRITE(*,*) 'Introduce the number of rows and columns in 
+     +the table.' 
+	WRITE(*,*)
+  402 WRITE(*,'(/A21\)') ' Number of rows (r): '
+      READ(*,*) r
+      IF(r.LT.2 .OR. r.GT.11) THEN
+		  WRITE(*,*) ' Value out of range'
+		  GOTO 402
+	ENDIF
+c
+c   Read the number of columns.
+c
+c	write(*,'(//)')
+  403 WRITE(*,'(/A24\)') ' Number of columns (c): '
+      READ(*,*) c
+      IF(c.LT.2 .OR. c.GT.30) THEN
+		  WRITE(*,*) ' Value out of range'
+		  GOTO 403
+	ENDIF
+c
+	incre1=0
+	incre2=0
+	nfop=0
+	ncop=0
+c	 
+	ntm=r*c*1000
+c
+c
+c   Assign dimension to matrices.
+c
+	ALLOCATE (mf(r),mc(c),tu(r,c),x(r,c),varhi(2,2,r,r),vfr(3,r-1),
+     +     epsi1j(3,c),rhi1e(2,c),vfrhi(r,r),xr(r,c), STAT=error)
+	IF(error.NE.0) STOP ' Fallo en la asignación de memoria.'
+c
+c
+	ALLOCATE (mft(r),mct(c),tb(r,c),afo(r),
+     +    aco(c),fop(r),cop(c),incref(r),increco(ntm,c),gemax(ntm,r,c),
+     +	ncaslib(ntm,r),copmt(c),copf(r,c),ncopf(r),cobl(c),
+     +    casbl(r,c),ncasbl(r),ncaslibt(r),tamax(ntm,r,c), STAT=error)
+	IF(error.NE.0) STOP ' Fallo en la asignación de memoria.'
+c
+c
+	DO 6 i=1,r
+	ncopf(i)=0
+	mft(i)=0
+	afo(i)=0
+    6 Continue
+	DO 7 j=1,c
+	mct(j)=0
+	aco(j)=0
+    7	Continue
+c
+	DO 1020 ke=1,ntm
+		gemax(ke,1,1)=0
+		increco(ke,1)=0
+ 1020	Continue
+	incref(1)=0
+c
+	DO 1021 k22=1,500000
+		maxgene(k22)=1
+ 1021	Continue			
+c  
+c   Read the starting MPT and calculate the marginal totals. 
+c	
+	nf=0
+	WRITE(*,*)
+	WRITE(*,*)	
+	WRITE(*,*) 'Introduce the starting MPT '
+	DO 414 i=1,r
+		mf(i)=0
+         WRITE(*,'(1X)')
+      DO 416 j=1,c
+  415    WRITE(*,'(A5,I3,A10,I3,A3\)') ' Row ',i,'   Column ',j,' : '
+         READ(*,*) x(i,j)
+         IF(x(i,j).LT.0.OR.x(i,j).GT.25000) THEN
+		  WRITE(*,*) ' Value out of range'
+	      GOTO 415
+	   ENDIF
+		mf(i)=mf(i)+x(i,j)
+		IF(mf(i).GT.25000) THEN
+		WRITE(*,*) 'Row marginal too big'
+		GOTO 1111 
+		ENDIF
+		xr(i,j)=REAL(x(i,j))
+  416 Continue
+		nf=nf+mf(i)
+  414 Continue
+c
+	nc=0
+	DO 417 j=1,c
+		mc(j)=0
+      DO 418 i=1,r
+		mc(j)=mc(j)+x(i,j)
+		IF(mc(j).GT.25000) THEN
+		WRITE(*,*) 'Column marginal too big'
+		GOTO 1111 
+		ENDIF
+  418 Continue
+		nc=nc+mc(j)
+  417 Continue	
+c
+	IF(nf.NE.nc) THEN 
+		WRITE(*,*) ' Error in the marginal sums.'
+		GOTO 1111
+	ENDIF 
+	IF(nf.GT.40000) THEN
+		WRITE(*,*) ' Marginal sums too big'
+		GOTO 1111 
+	ENDIF
+c
+c   Assign dimension to matrices (continuation).
+c
+	ALLOCATE (lofac(0:nf), STAT=error)
+	IF(error.NE.0) STOP ' Fallo en la asignación de memoria.'
+c
+c  
+c   Calculation of logarithms of factorials.
+c
+      lofac(0)=0
+      DO 1018 i44=1,nf
+		idp=i44
+		lofac(i44)=lofac(i44-1)+DLOG10(idp)
+ 1018 continue   
+c
+c
+c   Write the title, starting MPT and marginal totals 
+c   to the results file.
+c
+	lofacc=0	
+	write(0,*)
+	write(0,*)
+      WRITE(0,*) 'Marginal sums of the starting MPT'
+      WRITE(0,'(/A3,I3)') ' r=',r
+      WRITE(0,'(A19\)') ' Row marginals :   '
+      DO 406 i=1,r
+		WRITE(0,'(1X,I5\)') mf(i)
+  406 Continue
+      WRITE(0,'(/A3,I3)') ' c=',c
+      WRITE(0,'(A19\)') ' Column marginals: '
+      DO 407 j=1,c
+		WRITE(0,'(1X,I5\)') mc(j)
+  407 Continue
+      WRITE(0,'(1X)')
+c
+      WRITE(0,'(///A14)') ' STARTING MPT:'
+      DO 408 i=1,r
+          DO 409 j=1,c
+              WRITE(0,'(2X,I5\)') x(i,j)
+		lofacc=lofacc+lofac(x(i,j))
+  409     Continue
+          WRITE(0,'(1X)')
+  408 Continue
+	write(0,*)
+c
+	epsi=epsi*lofacc*10
+	lofacc1=lofacc-epsi
+	lofacc2=lofacc+epsi
+c
+c   Calculating the sum of logarithms of Ri!, Cj! and N!
+c
+	lofrcn=0
+	DO 310 i=1,r
+		lofrcn=lofrcn+lofac(mf(i))
+  310 Continue
+c
+	DO 315 j=1,c
+		lofrcn=lofrcn+lofac(mc(j))
+  315 Continue
+	lofrcn=lofrcn-lofac(nf)
+c
+c   Calculation of the probability of the starting MPT.
+c
+	loprob=lofrcn-lofacc  
+	prob=10**loprob  
+c
+	WRITE(0,*) ' Probability of the starting MPT = ',prob
+	WRITE(0,*)
+c
+	DO 410 i81=1,2
+	DO 410 i82=1,2
+	DO 410 i83=1,r
+		varhi(i81,i82,i83,i83)=1
+  410	Continue
+	DO 412 i83=1,r
+		vfrhi(i83,i83)=1
+  412 Continue
+c
+c
+c   Calculation of the U table for the starting MPT.
+c
+c   Determine the initial limits for the ratios rhi.
+c
+	WRITE(0,*)
+	netap=1
+	DO 420 ix=2,r
+	DO 420 hx=1,ix-1
+	DO 430 j3=1,c
+		rhi1e(1,j3)=xr(ix,j3)/(xr(hx,j3)+1)
+		rhi1e(2,j3)=(xr(ix,j3)+1)/xr(hx,j3)
+  430 Continue
+		ietac=1
+		ma=rhi1e(1,1)
+		mi=rhi1e(2,1)
+	DO 435 j10=2,c
+		ma=MAX(ma,rhi1e(1,j10))
+		mi=MIN(mi,rhi1e(2,j10))
+  435 Continue
+c
+		epsi3=epsi50*ma
+		valinf3=ma-epsi3
+		valsup3=ma+epsi3
+		IF(mi.GT.valinf3.AND.mi.LT.valsup3) mi=ma
+c
+		varhi(ietac,1,hx,ix)=ma
+		varhi(ietac,2,hx,ix)=mi
+  420 Continue
+c
+c   The recursive process begins: stages 2, 3,...
+c
+  465 netap=netap+1
+	IF(ietac.EQ.1) THEN
+		ietac=2
+		ietan=1
+		ELSE
+		ietac=1
+		ietan=2
+	ENDIF
+c
+	DO 450 ix=2,r
+	DO 450 hx=1,ix-1
+		kp=0
+	DO 453 ht=1,hx
+	DO 453 it=ix,r
+		kp=kp+1
+		IF(kp.GT.90) STOP 'kp greater than 90'
+		rhipr(1,kp)=varhi(ietan,1,ht,it)/(varhi(ietan,2,ht,hx)*
+     +	varhi(ietan,2,ix,it))
+		rhipr(2,kp)=varhi(ietan,2,ht,it)/(varhi(ietan,1,ht,hx)*
+     +	varhi(ietan,1,ix,it))
+  453 Continue
+	IF(hx.EQ.ix-1) GOTO 510
+	DO 515 jt=hx+1,ix-1
+		kp=kp+1
+		IF(kp.GT.90) STOP 'kp greater than 90'
+		rhipr(1,kp)=varhi(ietan,1,hx,jt)*varhi(ietan,1,jt,ix)
+		rhipr(2,kp)=varhi(ietan,2,hx,jt)*varhi(ietan,2,jt,ix)
+  515 Continue
+  510		ma=rhipr(1,1)
+		mi=rhipr(2,1)
+	DO 455 j10=2,kp
+		ma=MAX(ma,rhipr(1,j10))
+		mi=MIN(mi,rhipr(2,j10))
+  455 Continue
+c
+		epsi3=epsi50*ma
+		valinf3=ma-epsi3
+		valsup3=ma+epsi3
+		IF(mi.GT.valinf3.AND.mi.LT.valsup3) mi=ma
+c
+		varhi(ietac,1,hx,ix)=ma
+		varhi(ietac,2,hx,ix)=mi
+  450 Continue
+c
+c   Controlling the end of the recursive process
+c
+	ind=0
+	DO 460 ix=2,r
+	DO 460 hx=1,ix-1
+		epsir1=epsi1000*varhi(ietan,1,hx,ix)
+		epsir2=epsi1000*varhi(ietan,2,hx,ix)
+		valinf2=varhi(ietan,1,hx,ix)+epsir1
+		valsup1=varhi(ietan,2,hx,ix)-epsir2
+		IF(varhi(ietac,1,hx,ix).GT.valinf2) THEN
+		ind=1
+		EXIT
+		ENDIF
+		IF(varhi(ietac,2,hx,ix).LT.valsup1) THEN
+		ind=1
+		EXIT
+		ENDIF
+  460	Continue
+	IF(ind.EQ.1) GOTO 465
+c
+c   Ending the recursive process, calculation of the final values
+c   of the ratios r1, r2,...
+c
+	IF(varhi(ietac,2,1,2).GT.1.5E37) THEN
+		vfrhi(1,2)=varhi(ietac,1,1,2)*10+1
+	ELSE
+		vfrhi(1,2)=(varhi(ietac,1,1,2)+varhi(ietac,2,1,2))/2
+	ENDIF
+	vfr(3,1)=vfrhi(1,2)
+	vfr(1,1)=varhi(ietac,1,1,2)
+	vfr(2,1)=varhi(ietac,2,1,2)
+	IF(r.EQ.2) GOTO 476
+c
+c
+	DO 470 ix=2,r-1
+		IF(ix.LT.3) GOTO 472
+	DO 475 it=ix-2,1,-1
+		vfrhi(it,ix)=vfrhi(it,it+1)*vfrhi(it+1,ix)
+  475 Continue
+  472		ma=varhi(ietac,1,ix,ix+1)
+		mi=varhi(ietac,2,ix,ix+1)
+	DO 480 it2=1,ix-1
+		ma1=varhi(ietac,1,it2,ix+1)/vfrhi(it2,ix)
+		mi1=varhi(ietac,2,it2,ix+1)/vfrhi(it2,ix)
+		ma=MAX(ma,ma1)
+		mi=MIN(mi,mi1)
+  480 Continue
+		vfr(1,ix)=ma
+		vfr(2,ix)=mi
+		IF(mi.GT.1.5E37) THEN
+			vfr(3,ix)=ma*10+1
+		ELSE
+			vfr(3,ix)=(ma+mi)/2
+		ENDIF
+		vfrhi(ix,ix+1)=vfr(3,ix)
+  470 Continue
+c
+	IF(r.EQ.2) GOTO 476
+	DO 511 ix=3,r
+		vfrhi(1,ix)=vfrhi(1,ix-1)*vfrhi(ix-1,ix)
+  511 Continue
+c
+c   Write the limits and values of r1, r2,...
+c
+  476 WRITE(0,*)
+c	WRITE(0,*)
+	id23=0
+	DO 485 ix=1,r-1
+		epsi2=epsi100*vfr(2,ix)
+		valsup2=vfr(2,ix)+epsi2	
+		IF(vfr(2,ix).LE.0.OR.vfr(1,ix).GT.valsup2) id23=1
+  485 Continue
+c
+	IF(id23.EQ.1) THEN
+	    WRITE(*,*)
+	    WRITE(*,*)
+	    WRITE(*,*) ' STOP. The entered rxc table is not an MPT.'
+	    WRITE(0,*) ' STOP. The entered rxc table is not an MPT.'
+	    WRITE(*,*)
+	    WRITE(*,*)
+		GOTO 1111
+	ENDIF
+c
+c
+c  Calculation of epsilon1j
+c
+	DO 490 jx=1,c
+		ma=0
+		mi=1
+	DO 495 ix=2,r
+		ma1=(xr(ix,jx)/vfrhi(1,ix))-xr(1,jx)
+		mi1=((xr(ix,jx)+1)/vfrhi(1,ix))-xr(1,jx)
+		ma=MAX(ma,ma1)
+		mi=MIN(mi,mi1)
+  495 Continue
+	epsi1j(1,jx)=ma
+	epsi1j(2,jx)=mi
+	epsi1j(3,jx)=(ma+mi)/2
+	IF(epsi1j(3,jx).LT.0) epsi1j(3,jx)=0
+  490 Continue
+c
+c   End of U table calculation.
+c
+	DO 500 jx=1,c
+		tu(1,jx)=xr(1,jx)+epsi1j(3,jx)
+	DO 500 ix=2,r
+		tu(ix,jx)=tu(ix-1,jx)*vfrhi(ix-1,ix)
+  500 Continue
+c
+c   Write the associated U Table.
+c
+	WRITE(0,'(/A21)') ' ASSOCIATED U TABLE :'
+      DO 508 i=1,r
+          DO 509 j=1,c
+              WRITE(0,'(1X,F10.3\)') tu(i,j)
+  509     Continue
+          WRITE(0,'(1X)')
+  508 Continue
+	WRITE(0,*)
+c
+c
+c   The obtaining of the MPTs begins.
+c
+	nmaxgennov=0
+	id3=0
+	DO 10 i=1,r
+	DO 10 j=1,c
+		epsir1=epsir*tu(i,j)*10
+		valinf1=tu(i,j)-epsir1
+		valsup1=tu(i,j)+epsir1
+		tb(i,j)=INT(valsup1)
+		IF(tb(i,j).GT.valinf1.AND.tb(i,j).LT.valsup1) THEN
+		tb(i,j)=tb(i,j)-1
+		afo(i)=1
+		aco(j)=1
+		gemax(1,i,j)=9
+		id3=1
+		ENDIF
+   10 Continue
+c
+c
+	IF(id3.EQ.1) GOTO 173
+c
+c
+c   Write the MPT if it is unique.
+c
+	WRITE(0,*)
+	WRITE(0,*)
+	WRITE(0,*)
+      WRITE(0,'(//A41)') ' MAXIMUM PROBABILITY rxc TABLE (unique): '
+      DO 170 i=1,r
+          DO 172 j=1,c
+              WRITE(0,'(1X,I5\)') tb(i,j)
+  172     Continue
+          WRITE(0,'(1X)')
+  170 Continue
+	WRITE(0,*)
+	GOTO 125
+c
+c
+  173	DO 20 i=1,r
+	DO 22 j=1,c
+		mft(i)=mft(i)+tb(i,j)
+   22	Continue
+		incre=mf(i)-mft(i)
+		IF(afo(i).EQ.0) GOTO 23
+		IF(incre) 24,25,26
+   24		WRITE(0,'(A28,I2)') ' Negative increment to add in the row ',i
+		STOP
+   25		WRITE(0,'(A31,I2)') ' Operational row that is not: ',i
+		afo(i)=0
+		DO 27 j=1,c
+			IF(gemax(1,i,j).EQ.0) GOTO 27
+			gemax(1,i,j)=0
+   27		Continue			 
+		GOTO 20
+   26		incref(i)=incre
+		IF(incre.GT.8) THEN
+			WRITE(0,*) ' STOP. Increment greater than 8 in row ',i
+			STOP
+		ENDIF
+		GOTO 20
+   23		IF(incre.EQ.0) GOTO 20
+		WRITE(0,'(A41,I2)') 'Non-operational row with increment different of
+     + 0: ',i
+		STOP
+   20 Continue
+c
+c   Determining the increments to be added in the columns.
+c
+c	WRITE(0,*)
+	DO 30 j=1,c
+		DO 32 i=1,r
+		mct(j)=mct(j)+tb(i,j)
+   32     Continue
+		incre=mc(j)-mct(j)
+		IF(aco(j).EQ.0) GOTO 33
+		IF(incre) 34,35,36
+   34		WRITE(0,'(A28,I2)') ' Negative increment to add in the column ',j
+		STOP
+   35		WRITE(0,'(A31,I2)') ' Operational column that is not: ',j
+		aco(j)=0
+		DO 38 i=1,r
+			IF(gemax(1,i,j).EQ.0) GOTO 38
+			gemax(1,i,j)=0
+   38		Continue
+		GOTO 30
+   36		increco(1,j)=incre
+		GOTO 30
+   33		IF(incre.EQ.0) GOTO 30
+		WRITE(0,*) ' STOP. Non-operational column with increment 
+     + different of 0: ',j
+		STOP
+   30	Continue
+c
+c
+c
+	DO 40 j=1,c
+		IF(aco(j).EQ.0) GOTO 40
+		ncop=ncop+1
+		cop(ncop)=j
+		incre2=incre2+increco(1,j)
+   40 Continue
+	DO 50 i=1,r
+		IF(afo(i).EQ.0) GOTO 50
+		nfop=nfop+1
+		fop(nfop)=i
+		incre1=incre1+incref(i)
+		DO 55 jj=1,ncop
+			j=cop(jj)
+			IF(gemax(1,i,j).EQ.9) THEN
+			ncopf(nfop)=ncopf(nfop)+1
+			copf(nfop,ncopf(nfop))=j
+			ENDIF
+   55		Continue
+		ncaslib(1,nfop)=ncopf(nfop)
+		IF(incref(i).GT.ncaslib(1,nfop)) THEN
+			WRITE(0,*) ' Number of free cells less than the increment to
+     + to add in the row: ',i
+			STOP
+		ENDIF
+   50	Continue
+c
+	IF(incre1.EQ.incre2) GOTO 43
+	WRITE(0,*) ' STOP. Sums of increments, rows and columns, do not match.'
+	STOP
+c
+c
+c   The process of generating MPTs begins.
+c
+   43	nmg=1
+	nmama=1
+	IF(nfop.EQ.1) GOTO 331
+	DO 60 ii=1,nfop-1
+	i=fop(ii)
+c
+	ii1=ii+1
+	nmama=nmg
+	DO 64 maac=1,nmama
+	IF(maxgene(maac).EQ.0) GOTO 64
+c
+c   View and analyze different options for adding in the current row.
+c
+  	clf=0
+	DO 62 j1=1,ncopf(ii)
+		IF(gemax(maac,i,copf(ii,j1)).EQ.9) THEN
+			clf=clf+1
+			copmt(clf)=copf(ii,j1)
+			gemax(maac,i,copf(ii,j1))=0
+		ENDIF
+   62	Continue
+	IF(ncaslib(maac,ii).NE.clf) THEN
+		WRITE(0,*) 'Error in the number of free cells in the MPT and in the
+     + row: ',maac,i
+		WRITE(0,*) ' ncaslib(,)  clf:',ncaslib(maac,ii),clf
+		STOP
+	ENDIF
+	IF(clf.LT.incref(i)) THEN
+		WRITE(0,*) 'Number of free cells less than the increment to be added
+     +in the MPT and in the row:',maac,i
+		STOP
+	ENDIF
+c
+      DO 84 j2=1,clf
+		k10=copmt(j2)
+		IF(increco(maac,k10).GT.1) THEN
+			cobl(j2)=0
+			GOTO 84
+		ENDIF
+		cobl(j2)=1
+	DO 83 ib=ii1,nfop
+		IF(gemax(maac,fop(ib),k10).EQ.9) THEN
+			casbl(ib,j2)=1
+		ELSE
+			casbl(ib,j2)=0
+		ENDIF
+   83	Continue
+   84	Continue
+c
+c   Generating the different addition options.
+c
+	klim=clf-incref(i)
+	con=0
+	DO 70 i1=1,klim+1
+		IF(incref(i).EQ.1) THEN
+			con=con+1
+			mopc(con,1)=i1
+			GOTO 70
+		ENDIF
+c
+	DO 72 i2=i1+1,klim+2
+		IF(incref(i).EQ.2) THEN
+			con=con+1
+			mopc(con,1)=i1
+			mopc(con,2)=i2
+			GOTO 72
+		ENDIF
+c
+	DO 74 i3=i2+1,klim+3
+		IF(incref(i).EQ.3) THEN
+			con=con+1
+			mopc(con,1)=i1
+			mopc(con,2)=i2
+			mopc(con,3)=i3
+			GOTO 74
+		ENDIF
+c
+	DO 76 i4=i3+1,klim+4
+		IF(incref(i).EQ.4) THEN
+			con=con+1
+			mopc(con,1)=i1
+			mopc(con,2)=i2
+			mopc(con,3)=i3
+			mopc(con,4)=i4
+			GOTO 76
+		ENDIF
+c
+	DO 78 i5=i4+1,klim+5
+		IF(incref(i).EQ.5) THEN
+		con=con+1
+		mopc(con,1)=i1
+		mopc(con,2)=i2
+		mopc(con,3)=i3
+		mopc(con,4)=i4
+		mopc(con,5)=i5
+			GOTO 78
+		ENDIF
+c
+	DO 71 i6=i5+1,klim+6
+		IF(incref(i).EQ.6) THEN
+		con=con+1
+		mopc(con,1)=i1
+		mopc(con,2)=i2
+		mopc(con,3)=i3
+		mopc(con,4)=i4
+		mopc(con,5)=i5
+		mopc(con,6)=i6
+			GOTO 71
+		ENDIF
+c
+	DO 73 i7=i6+1,klim+7
+		IF(incref(i).EQ.7) THEN
+		con=con+1
+		mopc(con,1)=i1
+		mopc(con,2)=i2
+		mopc(con,3)=i3
+		mopc(con,4)=i4
+		mopc(con,5)=i5
+		mopc(con,6)=i6
+		mopc(con,7)=i7
+			GOTO 73
+		ENDIF
+c
+	DO 75 i8=i7+1,klim+8
+		con=con+1
+		mopc(con,1)=i1
+		mopc(con,2)=i2
+		mopc(con,3)=i3
+		mopc(con,4)=i4
+		mopc(con,5)=i5
+		mopc(con,6)=i6
+		mopc(con,7)=i7
+		mopc(con,8)=i8
+   75 Continue
+   73 Continue
+   71 Continue
+   78 Continue
+   76 Continue
+   74 Continue
+   72 Continue
+   70 Continue
+c
+c   Considering the first (or next) addition option in the current row.
+c
+	maact=maac
+	iop=1
+  110 id=0
+	IF(iop.GT.600) THEN
+		WRITE(0,*) ' Too many sum options in row: ',i
+		STOP
+	ENDIF
+	DO 82 kf=ii1,nfop
+		ncasbl(kf)=0
+   82	Continue
+	DO 80 kc=1,incref(i)
+		IF(cobl(mopc(iop,kc)).EQ.0) GOTO 80
+		id=1
+		DO 86 kf=ii1,nfop
+		IF(casbl(kf,mopc(iop,kc)).EQ.1) THEN
+		ncasbl(kf)=ncasbl(kf)+1
+		ENDIF
+   86		Continue
+   80 Continue
+	IF(id.EQ.0) GOTO 90
+c
+c   Check if the current sum option is valid.
+c
+	id2=0
+	DO 88 kf=ii1,nfop
+		IF(ncasbl(kf).EQ.0) GOTO 88
+		ncaslibt(kf)=ncaslib(maact,kf)-ncasbl(kf)
+		IF(ncaslibt(kf).GE.incref(fop(kf))) GOTO 88
+		id2=1
+		EXIT
+   88 Continue
+c
+	IF(id2.EQ.1) GOTO 95
+c
+c
+   90 maacan=maact
+	IF(iop.EQ.con) GOTO 100
+	nmg=nmg+1
+	maact=nmg
+	DO 92 kf=1,nfop
+		ncaslib(maact,kf)=ncaslib(maacan,kf)
+		DO 92 kc=1,ncop
+		gemax(maact,fop(kf),cop(kc))=gemax(maacan,fop(kf),cop(kc))						
+   92 Continue
+	DO 94 kc=1,ncop
+		increco(maact,cop(kc))=increco(maacan,cop(kc))
+   94 Continue
+c
+c
+  100 DO 102 kc=1,incref(i)
+		cb=mopc(iop,kc)
+		gemax(maacan,i,copmt(cb))=1
+		increco(maacan,copmt(cb))=increco(maacan,copmt(cb))-1
+		IF(cobl(cb).EQ.0) GOTO 102
+		DO 101 kf=ii1,nfop
+		gemax(maacan,fop(kf),copmt(cb))=0
+  101 Continue
+  102 Continue
+	DO 104 kf=ii1,nfop
+		IF(ncasbl(kf).EQ.0) GOTO 104
+		ncaslib(maacan,kf)=ncaslibt(kf)
+  104 Continue
+	IF(iop.EQ.con) GOTO 64
+	iop=iop+1
+	GOTO 110
+c
+   95 IF(iop.EQ.con) GOTO 115
+	iop=iop+1
+	GOTO 110
+c
+  115 IF(maact.EQ.maac) THEN
+		nmaxgennov=nmaxgennov+1
+		maxgene(maac)=0
+	ELSE
+		nmg=nmg-1
+	ENDIF
+c
+   64 Continue
+	nmama=nmg
+   60 Continue
+c
+c
+  331	iu=fop(nfop)
+	nmama=nmg
+	DO 120 maac=1,nmama
+c
+	IF(maxgene(maac).EQ.0) GOTO 120
+c		
+		clf=0
+		DO 122 j1=1,ncopf(nfop)
+			IF(gemax(maac,iu,copf(nfop,j1)).EQ.9) THEN
+				gemax(maac,iu,copf(nfop,j1))=1
+				clf=clf+1
+			ENDIF
+  122		Continue
+	IF(clf.NE.incref(iu)) THEN
+		WRITE(0,*) ' Error in the sum of the last row'
+		WRITE(0,*) ' max,fila,clf,incref(): ',maac,iu,clf,incref(iu)
+		STOP
+	ENDIF
+  120 Continue
+c
+  	nmaxgenv=nmg-nmaxgennov
+	WRITE(0,*)
+	WRITE(0,*)
+c
+  229	WRITE(0,*)
+	WRITE(0,*)		
+	WRITE(0,*) 'Number of MPTs obtained (valid) = ',nmaxgenv
+	WRITE(0,*)
+c
+c 
+c   Determine and write the MPTs.
+c
+	WRITE(*,*)
+	WRITE(*,*)
+	WRITE(*,*) 'Number of MPTs obtained (valid) = ',nmaxgenv
+  218	WRITE(*,*)
+      WRITE(*,'(/A41\)') ' Introduce the number of MPTs to write : '
+      READ(*,*) k30
+	IF(k30.EQ.0) GOTO 125
+	IF(k30.GT.nmaxgenv) GOTO 218
+c
+	WRITE(0,*)
+	WRITE(0,*)
+	WRITE(0,*)
+	WRITE(0,*) 'MAXIMUM PROBABILITY rxc TABLES (MPTs) '
+	WRITE(0,'(A28,I5,A2)') ' (Number of MPTs to write = ',k30,' )'
+	nord=0
+	DO 150 maac=1,nmama
+c
+	IF(nord.EQ.k30) THEN
+		EXIT
+	ENDIF
+c
+	IF(maxgene(maac).EQ.0) GOTO 150
+c
+	WRITE(0,*)
+	WRITE(0,*)
+	lofacct=0
+	nord=nord+1
+	WRITE(0,'(A4,I6)') ' MPT',nord
+	DO 160 ie=1,r
+		mf1=0
+	DO 165 je=1,c
+		tamax(maac,ie,je)=tb(ie,je)+gemax(maac,ie,je)
+		lofacct=lofacct+lofac(tamax(maac,ie,je))
+		mf1=mf1+tamax(maac,ie,je)
+		WRITE(0,'(1X,I5\)') tamax(maac,ie,je)
+  165     Continue
+          WRITE(0,'(1X)')
+		IF(mf1.NE.mf(ie)) STOP 'Incorrect marginal total of row'
+  160 Continue
+	DO 180 jm=1,c
+		mc1=0
+		DO 185 im=1,r
+		mc1=mc1+tamax(maac,im,jm)
+  185 Continue	
+		IF(mc1.NE.mc(jm)) STOP 'Incorrect marginal total of column'
+  180 Continue
+c
+		WRITE(0,*)
+		loprob=lofrcn-lofacct  
+		prob=10**loprob 
+		WRITE(0,*) ' Probability of the table = ',prob
+		IF(lofacct.LT.lofacc1.OR.lofacct.GT.lofacc2) STOP 'STOP Table
+     + of different probability.'	
+  150 Continue
+c
+  125	WRITE(0,*)
+	WRITE(0,*)
+	WRITE(0,*)
+c
+c
+ 1111	WRITE(*,*) 
+	WRITE(*,*) 'Enter any character to finish'
+	READ(*,*) aa
+c
+ 	END
